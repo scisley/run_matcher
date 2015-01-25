@@ -76,15 +76,26 @@ var addOsmToMap = function(target_map, data) {
 	
 	console.log("Number of segments: " + _.size(segments) );
 	console.log(nodes);
-	alist = makeAdjacencyList(segments, nodes);
+	crit = makeAdjacencyList(segments, nodes);
 	
 	// For debugging, plot the critical points
-	$.map(alist, function(node) {
+	$.map(crit, function(node) {
 		var circle = L.circle(node.point,12);
 		circle.bindPopup("Node Id:" + node.id);
 		circle.addTo(target_map);
 	});
-	Data.crit = alist;
+	Data.crit = crit;
+	
+	// For debugging, plot the critical point neighbour links
+	var lines = [];
+	$.map(crit, function(node) {
+		$.map(node.nbr, function(nbr) {
+			lines.push( [node.point, nbr.point] );
+		});
+	});
+	L.multiPolyline( lines, {weight:2, color:"black"} ).addTo(target_map);
+	
+	
 };
 
 var makeAdjacencyList = function(segments, nodes) {
@@ -99,15 +110,12 @@ var makeAdjacencyList = function(segments, nodes) {
 	any node at the end of a segment that is unique is also an intersection (a dead end)
 	
 	Steps:
-		* Make a new array of candidate critical points. Start by adding all start
-		  and end points for each segment.
-		* Next, add all non-unique remaining points.
-		* For each remaining point, add as neighbours the end node from each segment
-		  the node is a member
-		* For each candidate critical point, check if it only has two neighbours.
-		  If so, it is redundant. For each of its two neighbours, remove it and
-		  add the opposite neighbour with the correct distance. Then remove the
-		  redundant point	
+		* Make a new array of candidate critical points. Start by adding all the nodes that
+		  are members of more than one segment. Next, add the start and end point of each
+		  segment. Remove all duplicates.
+		* For each critical point, find the nearest other critical points in each segment.
+		  These are it's nearest neighbours. 
+		* Calculate distance between each critical point and it's neighbours.
 */
 	
 	// Add nodes that appear in multiple segments (likely intersections)
@@ -127,51 +135,45 @@ var makeAdjacencyList = function(segments, nodes) {
 	// For each critical point, look at the segments, find itself in the segment, then search 
 	// for new critical points either up or down in the list. Those are the neighbours
 	$.map(crit, function(cp) {
-		cp.neighbours = [];
+		cp.nbr = [];
+		cp.nbr_dist = [];
 		$.map(cp.segments, function(segment) {
 			var q = _.indexOf(_.pluck(segment.nodes, "id"), cp.id);
-			//console.log(cp.id + ":" + segment.segment_id + ":" + i);
 			// Look for the first prior critical point
-			var prior = _.first(segment.nodes, q);
-			for (p in prior.reverse()) {
-				if (Boolean(_.find(crit, prior[p], function(x) { return x.id; }))) {
-					cp.neighbours.push(prior[p]);
+			d = 0;
+			for (var p=q-1; p >= 0; p--) {
+				d += segment.points[p].distanceTo(segment.points[p+1]);
+				if (Boolean(_.find(crit, segment.nodes[p], function(x) { return x.id; }))) {
+					cp.nbr.push(segment.nodes[p]);
+					cp.nbr_dist.push(d);
 					break;
 				}
 			}
+			
 			// Look for the first latter critical point
-			var latter = _.rest(segment.nodes, q+1);
-			for (p in latter) {
-				if (Boolean(_.find(crit, latter[p], function(x) { return x.id; }))) {
-					cp.neighbours.push(latter[p]);
+			d=0;
+			for (var p=q+1; p < segment.nodes.length; p++) {
+				d += segment.points[p].distanceTo(segment.points[p-1]);
+				if (Boolean(_.find(crit, segment.nodes[p], function(x) { return x.id; }))) {
+					cp.nbr.push(segment.nodes[p]);
+					cp.nbr_dist.push(d);
 					break;
 				}
 			}
 		});
 	});
 	
+	// Remove any duplicates. It is possible for two critical points to be linked together by
+	// two different segments.
+	// WAIT! If two critical points are connected via different segments, we want it listed twice
+	// along with it's distance for each segment.
+	//$.map(crit, function(cp) { cp.nbr = _.uniq(cp.nbr, function(x) { return x.id; }); });
+	
 	// What does the distribution of neighbour count look like?
-	// _.countBy(Data.crit, function(x) { return x.neighbours.length; })
+	// _.countBy(Data.crit, function(x) { return x.nbr.length; })
 	
-/* 	//Grab all the segments and combine them into a big list of node id's
-	all_nodes = _.flatten(_.pluck(segments, "nodes"));	
-	all_nodes = $.map(all_nodes, function(node,i) {
-		return node.id;
-	});
 	
-	// Find those nodes that appear multiple times
-	var node_counts = _.countBy(all_nodes, function(num) { return num; } );
-	var crit_nodes = [];
-	for (id in node_counts) if (node_counts[id] > 1) crit_nodes.push(id); 
-	console.log(crit_nodes);
-	
-	// Add the beginning and ending node in every segment.
-	boundary_nodes = $.map(segments, function(segment, i) {
-		return [segment.nodes[0].id,segment.nodes[segment.nodes.length-1].id];
-	});
-	
-	crit_nodes = _.union(crit_nodes, _.flatten(boundary_nodes));
-	console.log(crit_nodes) */
+	console.log(crit)
 	
 	
 	return crit;
@@ -197,7 +199,7 @@ $(document).ready(function() {
 	mapB.addLayer(osmB);
 	
 	fetchOsm(mapA, "-105.1847,39.7372,-105.1646,39.7535" );
-	//fetchOsm(mapB, "-122.1309,47.6874,-122.0974,47.7040" );
+	fetchOsm(mapB, "-122.1309,47.6874,-122.0974,47.7040" );
 	
 	//GET pqs.php?x=string&y=string&units=string&output=string HTTP/1.1
 	//Host: ned.usgs.gov/epqs/pqs.php
