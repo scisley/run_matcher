@@ -2,6 +2,7 @@
 var xmlData;
 var mapA;
 var mapB;
+var Data = {};
 
 var fetchOsm = function(target_map, bbox) {
 	$.ajax({
@@ -79,8 +80,11 @@ var addOsmToMap = function(target_map, data) {
 	
 	// For debugging, plot the critical points
 	$.map(alist, function(node) {
-		L.circle(node.point,10).addTo(target_map);
+		var circle = L.circle(node.point,12);
+		circle.bindPopup("Node Id:" + node.id);
+		circle.addTo(target_map);
 	});
+	Data.crit = alist;
 };
 
 var makeAdjacencyList = function(ways, nodes) {
@@ -120,6 +124,34 @@ var makeAdjacencyList = function(ways, nodes) {
 	crit = _.uniq(crit, function(item) { return item.id; });
 	console.log(crit);
 	
+	// For each critical point, look at the ways, find itself in the way, then search 
+	// for new critical points either up or down in the list. Those are the neighbours
+	$.map(crit, function(cp) {
+		cp.neighbours = [];
+		$.map(cp.ways, function(way) {
+			var q = _.indexOf(_.pluck(way.nodes, "id"), cp.id);
+			//console.log(cp.id + ":" + way.way_id + ":" + i);
+			// Look for the first prior critical point
+			var prior = _.first(way.nodes, q);
+			for (p in prior.reverse()) {
+				if (Boolean(_.find(crit, prior[p], function(x) { return x.id; }))) {
+					cp.neighbours.push(prior[p]);
+					break;
+				}
+			}
+			// Look for the first latter critical point
+			var latter = _.rest(way.nodes, q+1);
+			for (p in latter) {
+				if (Boolean(_.find(crit, latter[p], function(x) { return x.id; }))) {
+					cp.neighbours.push(latter[p]);
+					break;
+				}
+			}
+		});
+	});
+	
+	// What does the distribution of neighbour count look like?
+	// _.countBy(Data.crit, function(x) { return x.neighbours.length; })
 	
 /* 	//Grab all the ways and combine them into a big list of node id's
 	all_nodes = _.flatten(_.pluck(ways, "nodes"));	
